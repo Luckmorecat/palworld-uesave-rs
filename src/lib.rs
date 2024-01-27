@@ -439,12 +439,14 @@ impl<'stream, 'header, 'types, 'scope, R: Read + Seek>
     {
         let offset = self.stream.stream_position()?;
         Ok(self.get_type().unwrap_or_else(|| {
+            /*
             eprintln!(
                 "offset {}: StructType for \"{}\" unspecified, assuming {:?}",
                 offset,
                 self.path(),
                 t
             );
+            */
             t
         }))
     }
