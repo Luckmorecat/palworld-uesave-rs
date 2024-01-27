@@ -6,6 +6,43 @@ use clap::{Parser, Subcommand};
 
 use uesave::{Save, StructType, Types};
 
+#[derive(Debug, Clone)]
+enum ActionPreset {
+    None,
+    Palworld,
+}
+
+impl ActionPreset {
+    fn get_types(&self) -> Types {
+        match self {
+            Self::None => Types::new(),
+            Self::Palworld => {
+                let mut types = Types::new();
+                for st in vec![
+                    ".worldSaveData.CharacterSaveParameterMap.Key",
+                    ".worldSaveData.FoliageGridSaveDataMap.Key",
+                    ".worldSaveData.FoliageGridSaveDataMap.ModelMap.InstanceDataMap.Key",
+                    ".worldSaveData.MapObjectSpawnerInStageSaveData.Key",
+                    ".worldSaveData.ItemContainerSaveData.Key",
+                    ".worldSaveData.CharacterContainerSaveData.Key"
+                ] {
+                    types.add(st.to_string(), StructType::Struct(None));
+                }
+                return types;
+            }
+        }
+    }
+}
+
+impl From<&str> for ActionPreset {
+    fn from(t: &str) -> Self {
+        match t {
+            "palworld" => Self::Palworld,
+            _ => Self::None,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 struct ActionToJson {
     #[arg(short, long, default_value = "-")]
@@ -24,6 +61,12 @@ struct ActionToJson {
     ///   -t .EnemiesKilled.Value=Struct
     #[arg(short, long, value_parser = parse_type)]
     r#type: Vec<(String, StructType)>,
+
+    #[arg(short, long, default_value = "palworld")]
+    preset: ActionPreset,
+
+    #[arg(long, default_value = "false")]
+    pretty: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -105,13 +148,17 @@ pub fn main() -> Result<()> {
 
     match args.action {
         Action::ToJson(action) => {
-            let mut types = Types::new();
+            let mut types = action.preset.get_types();
             for (path, t) in action.r#type {
                 types.add(path, t);
             }
 
             let save = Save::read_with_types(&mut input(&action.input)?, &types)?;
-            serde_json::to_writer_pretty(output(&action.output)?, &save)?;
+            if action.pretty {
+                serde_json::to_writer_pretty(output(&action.output)?, &save)?;
+            } else {
+                serde_json::to_writer(output(&action.output)?, &save)?;
+            }
         }
         Action::FromJson(io) => {
             let save: Save = serde_json::from_reader(&mut input(&io.input)?)?;

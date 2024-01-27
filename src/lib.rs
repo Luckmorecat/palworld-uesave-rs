@@ -14,6 +14,7 @@ text JSON format which can be used for manual save editing.
 use std::fs::File;
 
 use uesave::{Property, Save};
+use std::io::BufReader;
 
 let save = Save::read(&mut File::open("drg-save-test.sav")?)?;
 match save.root.properties["NumberOfGamesPlayed"] {
@@ -138,7 +139,57 @@ type Properties = indexmap::IndexMap<String, Property>;
 fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Properties> {
     let mut properties = Properties::new();
     while let Some((name, prop)) = read_property(reader)? {
-        properties.insert(name, prop);
+        let mut is_parsed = false;
+        let scope_path = reader.scope.path();
+        // scope_path != ".worldSaveData.MapObjectSaveData.Model.Connector" 
+        if name == "RawData" && scope_path != ".worldSaveData.MapObjectSaveData.Model.Connector" {
+            match &prop {
+                Property::Array { value, .. } => {
+                    match value {
+                        ValueArray::Base(ValueVec::Byte(ByteArray::Byte(v))) => {
+                            // vec! to BufReader
+                            let buf = std::io::Cursor::new(v.as_slice());
+                            let mut temp_buf = std::io::BufReader::new(buf);
+                            let mut temp_reader = Context::<'_, '_, '_, '_, std::io::BufReader<std::io::Cursor<&[u8]>>> {
+                                stream: &mut temp_buf,
+                                header: reader.header,
+                                types: reader.types,
+                                scope: reader.scope,
+                            };
+                            if let Ok(inner_props) = read_properties_until_none(&mut temp_reader) {
+                                // println!("Added {} properties", inner_props.len());
+                                let rem_zero = temp_reader.read_u32::<LE>()?;
+                                let rem_guid = uuid::Uuid::read(&mut temp_reader)?; //  StructValue::read(&mut tempContext, &StructType::Guid)?;
+                                let mut rem_bytes = vec![];
+                                while let Ok(rem) = temp_reader.read_u8() {
+                                    rem_bytes.push(rem);
+                                    print!("{:02X} ", rem);
+                                }
+                                if !rem_bytes.is_empty() {
+                                    println!("");
+                                    panic!("unexpected bytes after RawData");
+                                }
+                                let replacement = Property::Struct { id: Option::None, value: StructValue::RawDataParsed(
+                                    RawDataParsed {
+                                        props: inner_props,
+                                        zero: rem_zero, 
+                                        id: rem_guid,
+                                        unk: rem_bytes
+                                    }
+                                ), struct_type: StructType::RawDataParsed, struct_id: uuid::Uuid::nil() };
+                                properties.insert(name.clone(), replacement);
+                                is_parsed = true;
+                            }
+                        }
+                        _ => todo!(),
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !is_parsed {
+            properties.insert(name, prop);
+        }
     }
     Ok(properties)
 }
@@ -167,6 +218,43 @@ fn read_property<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Option<(Str
     }
 }
 fn write_property<W: Write>(prop: (&String, &Property), writer: &mut Context<W>) -> TResult<()> {
+    // if prop is Property::Struct and it's value is Struct::RawDataParsed
+    // then we need to write the RawDataParsed struct
+    if let Property::Struct { id: _, value, .. } = prop.1 {
+        if let StructValue::RawDataParsed(raw_data_parsed) = value {
+            // create new temp writer
+            let mut buf = vec![];
+            let mut temp_buf = std::io::Cursor::new(&mut buf);
+            let mut temp_writer = Context::<'_, '_, '_, '_, std::io::Cursor<&mut std::vec::Vec<u8>>> {
+                stream: &mut temp_buf,
+                header: writer.header,
+                types: writer.types,
+                scope: writer.scope,
+            };
+            // new Property::Array of ByteArray::Byte
+            for prop in &raw_data_parsed.props {
+                write_property(prop, &mut temp_writer)?;
+            }
+            // write "None"
+            write_string(&mut temp_writer, "None")?;
+            // write u32
+            temp_writer.write_u32::<LE>(raw_data_parsed.zero)?;
+            // write uuid
+            raw_data_parsed.id.write(&mut temp_writer)?;
+            // write bytes
+            temp_writer.write_all(&raw_data_parsed.unk[..])?;
+
+            // REAL WRITE
+            let replacement = Property::Array {
+                array_type: PropertyType::ByteProperty,
+                value: ValueArray::Base(ValueVec::Byte(ByteArray::Byte(buf))),
+                id: Option::None,
+            };
+            write_property((prop.0, &replacement), writer)?;
+            return Ok(())
+        }
+    }
+
     write_string(writer, prop.0)?;
     prop.1.get_type().write(writer)?;
 
@@ -478,6 +566,7 @@ pub enum StructType {
     Color,
     SoftObjectPath,
     GameplayTagContainer,
+    RawDataParsed,
     Struct(Option<String>),
 }
 impl From<&str> for StructType {
@@ -496,6 +585,7 @@ impl From<&str> for StructType {
             "Color" => StructType::Color,
             "SoftObjectPath" => StructType::SoftObjectPath,
             "GameplayTagContainer" => StructType::GameplayTagContainer,
+            "RawDataParsed" => StructType::RawDataParsed,
             "Struct" => StructType::Struct(None),
             _ => StructType::Struct(Some(t.to_owned())),
         }
@@ -517,6 +607,7 @@ impl From<String> for StructType {
             "Color" => StructType::Color,
             "SoftObjectPath" => StructType::SoftObjectPath,
             "GameplayTagContainer" => StructType::GameplayTagContainer,
+            "RawDataParsed" => StructType::RawDataParsed,
             "Struct" => StructType::Struct(None),
             _ => StructType::Struct(Some(t)),
         }
@@ -543,6 +634,7 @@ impl StructType {
                 StructType::Color => "Color",
                 StructType::SoftObjectPath => "SoftObjectPath",
                 StructType::GameplayTagContainer => "GameplayTagContainer",
+                StructType::RawDataParsed => "RawDataParsed",
                 StructType::Struct(Some(t)) => t,
                 _ => unreachable!(),
             },
@@ -937,6 +1029,16 @@ impl GameplayTagContainer {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct RawDataParsed {
+    // if parsed, these 3 members are converted
+    props: Properties,
+    zero: u32,
+    id: uuid::Uuid,
+    // if parsed, unk does not include
+    unk: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct FFormatArgumentData {
     name: String,
     value: FFormatArgumentDataValue,
@@ -1315,6 +1417,7 @@ pub enum StructValue {
     Rotator(Rotator),
     SoftObjectPath(String, String),
     GameplayTagContainer(GameplayTagContainer),
+    RawDataParsed(RawDataParsed),
     /// User defined struct which is simply a list of properties
     Struct(Properties),
 }
@@ -1444,6 +1547,9 @@ impl StructValue {
             StructType::GameplayTagContainer => {
                 StructValue::GameplayTagContainer(GameplayTagContainer::read(reader)?)
             }
+            StructType::RawDataParsed => {
+                panic!("RawDataParsed should not be in sav");
+            },
 
             StructType::Struct(_) => StructValue::Struct(read_properties_until_none(reader)?),
         })
@@ -1466,6 +1572,10 @@ impl StructValue {
                 write_string(writer, b)?;
             }
             StructValue::GameplayTagContainer(v) => v.write(writer)?,
+            StructValue::RawDataParsed(_v) => {
+                panic!("RawDataParsed should not be written");
+            },
+
             StructValue::Struct(v) => write_properties_none_terminated(writer, v)?,
         }
         Ok(())
@@ -1504,7 +1614,7 @@ impl ValueVec {
                 ValueVec::Bool(read_array(count, reader, |r| Ok(r.read_u8()? > 0))?)
             }
             PropertyType::ByteProperty => {
-                if size == count.into() {
+                if size == count as u64 {
                     ValueVec::Byte(ByteArray::Byte(read_array(count, reader, |r| {
                         Ok(r.read_u8()?)
                     })?))
