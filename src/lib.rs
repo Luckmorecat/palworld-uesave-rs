@@ -134,7 +134,7 @@ fn write_string_always_trailing<W: Write>(writer: &mut Context<W>, string: &str)
     Ok(())
 }
 
-type Properties = indexmap::IndexMap<String, Property>;
+pub type Properties = indexmap::IndexMap<String, Property>;
 
 fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Properties> {
     let mut properties = Properties::new();
@@ -662,6 +662,7 @@ type Enum = String;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct MapEntry {
+    #[serde(skip_serializing)]
     pub key: PropertyValue,
     pub value: PropertyValue,
 }
@@ -1980,7 +1981,9 @@ pub enum Property {
     Map {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<uuid::Uuid>,
+        #[serde(skip_serializing)]
         key_type: PropertyType,
+        #[serde(skip_serializing)]
         value_type: PropertyType,
         value: Vec<MapEntry>,
     },

@@ -3,8 +3,7 @@ use std::io::{stdin, stdout, BufRead, BufReader, BufWriter, Write};
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-
-use uesave::{Save, StructType, Types};
+use uesave::{Property, Save, StructType, StructValue, Types};
 
 #[derive(Debug, Clone)]
 enum ActionPreset {
@@ -21,10 +20,30 @@ impl ActionPreset {
                 for st in vec![
                     ".worldSaveData.CharacterSaveParameterMap.Key",
                     ".worldSaveData.FoliageGridSaveDataMap.Key",
+                    ".worldSaveData.CharacterSaveParameterMap.Value",
                     ".worldSaveData.FoliageGridSaveDataMap.ModelMap.InstanceDataMap.Key",
                     ".worldSaveData.MapObjectSpawnerInStageSaveData.Key",
                     ".worldSaveData.ItemContainerSaveData.Key",
-                    ".worldSaveData.CharacterContainerSaveData.Key"
+                    ".worldSaveData.CharacterContainerSaveData.Key",
+                    ".worldSaveData.FoliageGridSaveDataMap.Value.ModelMap.Value",
+                    ".worldSaveData.FoliageGridSaveDataMap.Value.ModelMap.Value.InstanceDataMap.Key",
+                    ".worldSaveData.FoliageGridSaveDataMap.Value.ModelMap.Value.InstanceDataMap.Value",
+                    ".worldSaveData.FoliageGridSaveDataMap.Value",
+                    ".worldSaveData.MapObjectSaveData.MapObjectSaveData.ConcreteModel.ModuleMap.Value",
+                    ".worldSaveData.MapObjectSaveData.MapObjectSaveData.Model.EffectMap.Value",
+                    ".worldSaveData.MapObjectSpawnerInStageSaveData.Value",
+                    ".worldSaveData.MapObjectSpawnerInStageSaveData.Value.SpawnerDataMapByLevelObjectInstanceId.Value",
+                    ".worldSaveData.MapObjectSpawnerInStageSaveData.Value.SpawnerDataMapByLevelObjectInstanceId.Value.ItemMap.Value",
+                    ".worldSaveData.WorkSaveData.WorkSaveData.WorkAssignMap.Value",
+                    ".worldSaveData.BaseCampSaveData.Value",
+                    ".worldSaveData.BaseCampSaveData.Value.ModuleMap.Value",
+                    ".worldSaveData.ItemContainerSaveData.Value",
+                    ".worldSaveData.CharacterContainerSaveData.Value",
+                    ".worldSaveData.GroupSaveDataMap.Value",
+                    ".worldSaveData.EnemyCampSaveData.EnemyCampStatusMap.Value",
+                    ".worldSaveData.DungeonSaveData.DungeonSaveData.MapObjectSaveData.MapObjectSaveData.Model.EffectMap.Value",
+                    ".worldSaveData.DungeonSaveData.DungeonSaveData.MapObjectSaveData.MapObjectSaveData.ConcreteModel.ModuleMap.Value"
+
                 ] {
                     types.add(st.to_string(), StructType::Struct(None));
                 }
@@ -135,10 +154,26 @@ pub fn main() -> Result<()> {
             }
 
             let save = Save::read_with_types(&mut input(&action.input)?, &types)?;
+
+
+
+
+            
+            let val = match &save.root.properties["worldSaveData"] {
+                Property::Struct { id, value, struct_type, struct_id } => value,
+                _ => panic!("error 1.")
+            };
+
+            let res = match &val {
+                StructValue::Struct(val) => &val["CharacterSaveParameterMap"],
+                _ => panic!("error 2.")
+            };
+
+
             if action.pretty {
-                serde_json::to_writer_pretty(output(&action.output)?, &save)?;
+                serde_json::to_writer_pretty(output(&action.output)?, &res)?;
             } else {
-                serde_json::to_writer(output(&action.output)?, &save)?;
+                serde_json::to_writer(output(&action.output)?, &res)?;
             }
         }
         Action::FromJson(io) => {
