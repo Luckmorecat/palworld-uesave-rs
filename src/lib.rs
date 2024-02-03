@@ -137,8 +137,12 @@ fn write_string_always_trailing<W: Write>(writer: &mut Context<W>, string: &str)
 pub type Properties = indexmap::IndexMap<String, Property>;
 
 fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>) -> TResult<Properties> {
+    
     let mut properties = Properties::new();
     while let Some((name, prop)) = read_property(reader)? {
+
+        web_sys::console::log_1(&"parsinggg wait pls".into());
+
         let mut is_parsed = false;
         let scope_path = reader.scope.path();
         // scope_path != ".worldSaveData.MapObjectSaveData.Model.Connector" 
@@ -160,21 +164,20 @@ fn read_properties_until_none<R: Read + Seek>(reader: &mut Context<R>) -> TResul
                                 // println!("Added {} properties", inner_props.len());
                                 let rem_zero = temp_reader.read_u32::<LE>()?;
                                 let rem_guid = uuid::Uuid::read(&mut temp_reader)?; //  StructValue::read(&mut tempContext, &StructType::Guid)?;
-                                let mut rem_bytes = vec![];
-                                while let Ok(rem) = temp_reader.read_u8() {
-                                    rem_bytes.push(rem);
-                                    print!("{:02X} ", rem);
-                                }
-                                if !rem_bytes.is_empty() {
-                                    println!("");
-                                    panic!("unexpected bytes after RawData");
-                                }
+                                // let mut rem_bytes = vec![];
+                                // while let Ok(rem) = temp_reader.read_u8() {
+                                //     rem_bytes.push(rem);
+                                //     print!("{:02X} ", rem);
+                                // }
+                                // if !rem_bytes.is_empty() {
+                                //     println!("");
+                                //     panic!("unexpected bytes after RawData");
+                                // }
                                 let replacement = Property::Struct { id: Option::None, value: StructValue::RawDataParsed(
                                     RawDataParsed {
                                         props: inner_props,
                                         zero: rem_zero, 
                                         id: rem_guid,
-                                        unk: rem_bytes
                                     }
                                 ), struct_type: StructType::RawDataParsed, struct_id: uuid::Uuid::nil() };
                                 properties.insert(name.clone(), replacement);
@@ -242,7 +245,7 @@ fn write_property<W: Write>(prop: (&String, &Property), writer: &mut Context<W>)
             // write uuid
             raw_data_parsed.id.write(&mut temp_writer)?;
             // write bytes
-            temp_writer.write_all(&raw_data_parsed.unk[..])?;
+            // temp_writer.write_all(&raw_data_parsed.unk[..])?;
 
             // REAL WRITE
             let replacement = Property::Array {
@@ -1038,7 +1041,7 @@ pub struct RawDataParsed {
     zero: u32,
     id: uuid::Uuid,
     // if parsed, unk does not include
-    unk: Vec<u8>,
+    // unk: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
